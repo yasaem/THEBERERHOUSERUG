@@ -94,3 +94,22 @@ def pdf(invoice, language='fr'):
 
     document.build(story, onFirstPage=footer, onLaterPages=footer)
     return out.getvalue()
+
+def payroll_pdf(snapshot, salary, amounts, language='fr'):
+    language=validate_language(language)
+    en=language=='en'; company=snapshot['company']; employee=snapshot['employee']
+    out=io.BytesIO(); styles=getSampleStyleSheet(); story=[]
+    def text(v,style='Normal'): return Paragraph(escape(str(v)),styles[style])
+    if company.get('logo'):
+        image=Image(io.BytesIO(base64.b64decode(company['logo'].split(',')[1])));image._restrictSize(110,65);story.extend([image,Spacer(1,12)])
+    story.extend([text(company['name'],'Title'),text(company.get('address','')),Spacer(1,20),text(('PAYSLIP' if en else 'BULLETIN DE PAIE') if snapshot.get('regulatory') else ('PAYSLIP' if en else 'FICHE DE RÉMUNÉRATION'),'Heading1'),text(salary['date'][:7]),text(employee['name'],'Heading2'),text(employee['position']),Spacer(1,20)])
+    regulatory=snapshot.get('regulatory')
+    if regulatory:
+        story.extend([text('CIN : '+snapshot['profile']['cin']+' / CNSS : '+snapshot['profile']['cnss']),text(('Policy year: ' if en else 'Année du barème : ')+str(snapshot['policy']['year']))])
+        for label,key in [('Gross salary' if en else 'Salaire brut','gross'),('CNSS','cnss'),('AMO','amo'),('Income tax' if en else 'IR','ir')]:
+            story.append(text(f'{label} : {regulatory[key]/100:.2f} MAD','Heading3'))
+    for label,value in [('Base salary' if en else 'Salaire de base',amounts['base']),('Bonuses' if en else 'Primes',amounts['bonus']),('Deductions / advances' if en else 'Retenues / avances',amounts['deductions']),('Net payable' if en else 'Net à payer',salary['amount']),('Paid' if en else 'Payé',salary['paid']),('Balance due' if en else 'Restant dû',salary['amount']-salary['paid'])]:
+        story.append(text(f'{label} : {value/100:.2f} MAD','Heading3'))
+    story.extend([Spacer(1,25),text(('Calculated using company-approved parameters. Special cases require payroll review.' if en else 'Calcul selon les paramètres validés par l’entreprise. Les cas particuliers nécessitent une vérification de paie.') if regulatory else ('Management document. Statutory tax and social deductions are not calculated automatically.' if en else 'Document de gestion. Les cotisations sociales et l’impôt ne sont pas calculés automatiquement.'))])
+    SimpleDocTemplate(out,pagesize=A4,title='Payroll '+salary['date'][:7]).build(story)
+    return out.getvalue()

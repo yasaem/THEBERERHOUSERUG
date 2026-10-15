@@ -15,7 +15,7 @@ COPY .build/wheels/ /wheels/
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt && rm -rf /wheels
 
 FROM ${DEPENDENCY_STAGE} AS application
-COPY --chown=bazar:bazar server.py saas.py documents.py localization.py wsgi.py gunicorn.conf.py ./
+COPY --chown=bazar:bazar server.py payroll.py saas.py documents.py localization.py wsgi.py gunicorn.conf.py ./
 COPY --chown=bazar:bazar static/ ./static/
 COPY --chown=bazar:bazar scripts/ ./scripts/
 COPY --chown=bazar:bazar tests/ ./tests/

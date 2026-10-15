@@ -138,3 +138,19 @@ Ne versionnez jamais `.data/`, `.venv/`, `.env`, sauvegardes ou identifiants SMT
 40 tests ont été exécutés avec succès, y compris dans le conteneur. Le parcours éditeur/client, les quotas, les paiements, la suspension et le changement obligatoire du mot de passe ont aussi été vérifiés dans Chromium. Le redémarrage d’un conteneur avec volume, une sauvegarde et sa restauration dans une base séparée ont été contrôlés. Le connecteur Cloudflare officiel a été téléchargé avec vérification de digest et exécuté (`--version`), mais aucun tunnel de production n’a été connecté.
 
 Le workflow GitHub Actions vérifie les tests et la syntaxe JavaScript sur chaque push/PR ; sa présence ne signifie pas qu’une exécution distante a déjà été observée.
+
+### Ventes, logo, messagerie et paie
+
+- **Ventes** : les frais bancaires peuvent être saisis en MAD ou en pourcentage du **total TTC**. La part de répartition apparaît uniquement pour un vendeur ; les guides et agences ont leur propre commission.
+- **Paramètres → Entreprise & logo** : téléverser un PNG/JPEG (500 Ko maximum). Les nouvelles factures et les nouveaux bulletins conservent les informations de l’entreprise ; les documents historiques ne sont pas modifiés.
+- **Employés & salaires** : préparer les salaires du mois en une opération, sans doublons. Les règlements restent explicites. La fiche de gestion permet des primes et retenues avant paiement.
+- **Paie marocaine** : renseigner CIN/CNSS/personnes à charge, puis configurer et valider le barème de l’année (propriétaire uniquement). Cocher « Bulletin marocain » à la préparation. Le salaire de référence est alors **brut**. Le moteur calcule CNSS salarié plafonnée, AMO, frais professionnels, IR annualisé et déductions familiales. Les paramètres et identités sont figés dans le PDF FR/EN. La référence indicative fournie est celle de **2025**, non une certification des règles 2026. Une validation comptable est nécessaire pour l’année utilisée. Cas particuliers, charges patronales, déclarations CNSS, congés, heures supplémentaires, primes exonérées et régularisation annuelle ne sont pas automatisés. Un bulletin marocain généré est figé ; ne pas utiliser le réglage de primes de la fiche simple pour le modifier.
+- Les anciens salaires restent conservés ; ils ne sont pas convertis rétroactivement en bulletins marocains. La préparation mensuelle est déclenchée par un bouton, sans virement ni tâche planifiée garantie sur Render gratuit.
+
+### Activer simplement les e-mails sur Render
+
+Utiliser Resend via HTTPS : créer un compte sur <https://resend.com>, vérifier une adresse/domaine expéditeur autorisé, puis ajouter dans **Render → Environment** les secrets `RESEND_API_KEY` et `MAIL_FROM` (ex. `Bazar <factures@votre-domaine.fr>`). Redéployer. La clé reste côté serveur et n’est jamais envoyée au navigateur. Aucun mot de passe ou clé ne doit être ajouté au dépôt ou au chat.
+
+Sans domaine vérifié, le mode de test du fournisseur peut limiter les destinataires : il ne constitue pas un envoi commercial général. L’activation et les restrictions dépendent du compte fournisseur ; aucun compte Resend n’a été créé automatiquement et aucune livraison réelle n’a été testée. L’application affiche un message explicatif et propose le PDF si la messagerie n’est pas configurée.
+
+L’ancien SMTP STARTTLS reste disponible avec `SMTP_HOST`, `SMTP_PORT` (587 par défaut), `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD`. Resend est prioritaire si sa clé est définie. Les ports SMTP peuvent être bloqués par l’hébergement ; privilégier HTTPS sur Render gratuit.

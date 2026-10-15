@@ -147,6 +147,69 @@ class Integration(unittest.TestCase):
                 self.assertIn(greeting,message.get_body(preferencelist=('plain',)).get_content())
                 self.assertEqual(len(list(message.iter_attachments())),1)
                 smtp.return_value.__enter__.return_value.starttls.assert_called_once()
+    def test_bank_percentage_uses_total_with_tax(self):
+        code,result=self.sale(vat=20,discount=100,bank_method='percent',bank_value='2.5')
+        self.assertEqual(code,200)
+        sale=self.a.state()['sales'][0]
+        self.assertEqual(sale['bank'],29700)
+        self.assertEqual(self.sale(key='invalid-rate',bank_method='percent',bank_value=101)[0],400)
+
+    def test_monthly_payroll_snapshot_adjustments_and_isolation(self):
+        employee=self.a.create('employees',shop_id=self.sa,name='Employé',position='Vendeur',salary=5000)[1]['id']
+        payload={'month':'2026-10','shop_id':self.sa}
+        self.assertEqual(self.a.request('payroll/prepare',payload)[1]['created'],1)
+        self.assertEqual(self.a.request('payroll/prepare',payload)[1]['created'],0)
+        row=self.a.state()['salaries'][0]
+        self.assertEqual(row['paid'],0)
+        self.assertEqual(self.b.request('payroll/pdf',{'id':row['id']})[0],400)
+        self.assertEqual(self.a.request('payroll/adjust',{'id':row['id'],'bonus':200,'deductions':100})[0],200)
+        self.assertEqual(self.a.state()['salaries'][0]['amount'],510000)
+        self.a.request('update',{'entity':'employees','id':employee,'values':{'salary':9000,'name':'Changed'}})
+        for language in ['fr','en']:
+            code,result=self.a.request('payroll/pdf',{'id':row['id'],'language':language})
+            self.assertEqual(code,200)
+            import base64, io
+            from unittest.mock import patch
+            self.assertTrue(base64.b64decode(result['content']).startswith(b'%PDF'))
+        self.assertEqual(self.a.create('salaries',shop_id=self.sa,employee_id=employee,name='Duplicate',date='2026-10-20',amount=5000)[0],400)
+        self.assertEqual(self.a.request('pay',{'entity':'salaries','id':row['id'],'amount':100})[0],200)
+        self.assertEqual(self.a.request('payroll/adjust',{'id':row['id'],'bonus':300})[0],400)
+        with server.connect() as c:
+            import json
+            details=c.execute('SELECT * FROM payroll_details WHERE salary_id=?',(row['id'],)).fetchone()
+            self.assertEqual(json.loads(details['snapshot'])['employee']['name'],'Employé')
+            self.assertEqual(details['base'],500000)
+        self.assertEqual(self.a.request('payroll/prepare',{'month':'2026-13'})[0],400)
+
+    def test_moroccan_payroll_requires_policy_and_keeps_snapshot(self):
+        from test_payroll import POLICY
+        employee=self.a.create('employees',shop_id=self.sa,name='Employé',position='Vendeur',salary=10000)[1]['id']
+        d={'month':'2025-10','morocco':True}
+        self.assertEqual(self.a.request('payroll/prepare',d)[0],400)
+        self.assertEqual(self.a.request('payroll/policy',{'policy':POLICY})[0],200)
+        self.assertEqual(self.a.request('payroll/prepare',d)[0],400)
+        self.assertEqual(self.a.state()['salaries'],[])
+        self.assertEqual(self.a.request('payroll/profile',{'id':employee,'cin':'AB123','cnss':'123456','dependants':2})[0],200)
+        self.assertEqual(self.a.request('payroll/prepare',d)[1]['created'],1)
+        r=self.a.state()['salaries'][0]
+        self.assertEqual(r['amount'],898697)
+        self.assertEqual(self.a.request('payroll/pdf',{'id':r['id'],'language':'fr'})[0],200)
+        self.assertEqual(self.a.request('payroll/adjust',{'id':r['id'],'bonus':100})[0],400)
+        self.assertEqual(self.a.request('payroll/prepare',{'month':'2026-10','morocco':True})[0],400)
+
+    def test_email_https_provider_without_real_delivery(self):
+        from unittest.mock import patch
+        ident=self.sale()[1]['id']
+        with patch.dict(server.os.environ,{'RESEND_API_KEY':'fake-test-key','MAIL_FROM':'billing@example.test'}), patch('server.urllib.request.urlopen') as send:
+            send.return_value.__enter__.return_value.status=200
+            code,_=self.a.request('invoice-email',{'id':ident,'email':'customer@example.test','language':'en'})
+            self.assertEqual(code,200)
+            request=send.call_args.args[0]
+            self.assertEqual(request.full_url,'https://api.resend.com/emails')
+            payload=json.loads(request.data)
+            self.assertTrue(payload['subject'].startswith('Your invoice'))
+            self.assertEqual(len(payload['attachments']),1)
+
     def test_invalid_quantity(self):
         self.assertEqual(self.sale(lines=[{'product_id':self.pid,'quantity':1.5,'price':10000}])[0],400)
 

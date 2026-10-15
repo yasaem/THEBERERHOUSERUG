@@ -137,3 +137,11 @@ docker build --build-arg DEPENDENCY_STAGE=offline -t bazar-erp:local .
 Use wheels matching Python 3.12 and the target platform. Full deployment details and restore procedures are in `docs/CLOUDFLARE.md`.
 
 40 tests passed, also inside Docker. The publisher-to-customer browser workflow, quota enforcement, payment, suspension, restart persistence and backup restoration into a separate database were verified. The official Cloudflare connector image was verified by digest and its binary executed, but no authenticated production tunnel was connected. A GitHub Actions workflow is included; a remote CI run is not claimed without observing it.
+
+### Sales, branding, email and payroll
+
+Bank fees support fixed MAD or a percentage of the VAT-inclusive total. Seller sharing is labelled and hidden for guides. Company logo upload is available under Settings → Company & logo. New documents retain historical company information.
+
+Monthly payroll preparation is idempotent and never marks wages as paid automatically. Management payslips support bonuses and deductions. Moroccan payroll requires employee CIN/CNSS, dependants and an owner-approved policy matching the year. The reference policy is **2025**, not verified 2026 legislation. The calculation covers employee CNSS, AMO, annualized income tax and family relief for the general private-sector case. Special regimes, employer contributions, declarations, leave, overtime, exempt bonuses and annual reconciliation require further payroll work. Generated Moroccan payroll is frozen. Accountant review remains necessary.
+
+For Render email delivery, create a Resend account, verify an allowed sender and set secure environment variables `RESEND_API_KEY` and `MAIL_FROM`, then redeploy. Provider sandbox restrictions apply without a verified domain. No real delivery has been validated. SMTP remains supported; HTTPS is preferable on free hosting. Never commit credentials.

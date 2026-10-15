@@ -1,7 +1,9 @@
 import os, json, sqlite3, secrets, hashlib, hmac, time, csv, io, base64, zipfile
 import xml.etree.ElementTree as ET
 import smtplib, ssl
+import urllib.request, urllib.error
 import saas
+import payroll
 from email.message import EmailMessage
 from documents import pdf as invoice_pdf
 from localization import translate, language as validate_language
@@ -66,6 +68,7 @@ CREATE INDEX IF NOT EXISTS commissions_company_sale ON commissions(company_id,sa
 CREATE INDEX IF NOT EXISTS products_company_shop ON products(company_id,shop_id);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,company_id INTEGER REFERENCES companies,user_id INTEGER REFERENCES users,event TEXT,date TEXT);
 ''')
+        payroll.init(c)
         saas.init(c)
         c.commit()
         c.execute('PRAGMA journal_mode=WAL')
@@ -98,6 +101,9 @@ def sale_create(c,u,d):
     discount=money(d.get('discount',0)); shipping=money(d.get('shipping',0)); bank=money(d.get('bank',0))
     if discount>subtotal: raise ValueError('La remise dépasse la vente')
     ht=subtotal-discount; tax=rate(ht,d.get('vat',0)); total=ht+tax; paid=money(d.get('paid',0))
+    if d.get('bank_method','fixed') not in ['fixed','percent']: raise ValueError('Méthode de frais bancaires invalide')
+    if d.get('bank_method')=='percent': bank=rate(total,d.get('bank_value',0))
+    elif 'bank_value' in d: bank=money(d['bank_value'])
     if paid>total: raise ValueError('Paiement supérieur au total')
     parts=d.get('commissions',[])
     sellers=[x for x in parts if x.get('kind')=='Vendeur']
@@ -247,6 +253,15 @@ class Handler(BaseHTTPRequestHandler):
                         if u['role']!='owner' and t in ['shops','products','sales','commissions','expenses','employees','salaries']:
                             query+=' AND '+('id' if t=='shops' else 'shop_id')+' IN (SELECT shop_id FROM user_shops WHERE user_id=?)'; args.append(u['id'])
                         rows=[dict(r) for r in c.execute(query+' ORDER BY id DESC',args)]
+                        if t=='employees':
+                            for row in rows:
+                                profile=c.execute('SELECT cin,cnss,dependants FROM payroll_profiles WHERE employee_id=?',(row['id'],)).fetchone()
+                                if profile: row.update(dict(profile))
+                        if t=='salaries':
+                            for row in rows:
+                                details=c.execute('SELECT base,bonus,deductions FROM payroll_details WHERE salary_id=?',(row['id'],)).fetchone()
+                                if details: row.update(dict(details))
+                                row['expense_amount']=details['base']+details['bonus'] if details else row['amount']
                         if u['role']=='manager' and t in ['clients','partners','movements','audit']:
                             rows=[] # Company-wide administrative histories are reserved to owners.
 
@@ -257,6 +272,8 @@ class Handler(BaseHTTPRequestHandler):
                                 for field in ['cost','bank','shipping']: row.pop(field,None)
                         data[t]=rows
                     if u['role']=='owner':
+                        policy=c.execute('SELECT config FROM payroll_policy WHERE company_id=?',(u['company_id'],)).fetchone()
+                        data['payroll_policy']=json.loads(policy['config']) if policy else None
                         settings=c.execute('SELECT * FROM company_settings WHERE company_id=?',(u['company_id'],)).fetchone(); data['settings']=dict(settings) if settings else {}
                     return self.reply(data)
                 if path=='/api/sales' and method=='POST':
@@ -270,12 +287,20 @@ class Handler(BaseHTTPRequestHandler):
                     content=invoice_pdf(document,selected)
                     if path=='/api/invoice-pdf': return self.reply({'content':base64.b64encode(content).decode(),'filename':f'{"Invoice" if selected=="en" else "Facture"}-F-{s["id"]:06d}.pdf','language':selected})
                     if u['role'] not in ['owner','manager']: return self.reply({'error':'Accès interdit'},403)
-                    if not os.environ.get('SMTP_HOST') or not os.environ.get('SMTP_FROM'): raise ValueError('Envoi non configuré : renseignez SMTP_HOST et SMTP_FROM sur le serveur')
+                    if not ((os.environ.get('SMTP_HOST') and os.environ.get('SMTP_FROM')) or (os.environ.get('RESEND_API_KEY') and os.environ.get('MAIL_FROM'))): raise ValueError('La messagerie doit être activée par l’administrateur. Vous pouvez télécharger la facture PDF en attendant.')
                     address=str(d.get('email','')).strip()
                     if '@' not in address or '\n' in address or '\r' in address: raise ValueError('Adresse e-mail invalide')
-                    message=EmailMessage();message['From']=os.environ['SMTP_FROM'];message['To']=address;message['Subject']=f'{"Your invoice" if selected=="en" else "Votre facture"} F-{s["id"]:06d} — {document["company"]["name"]}'
+                    message=EmailMessage();message['From']=os.environ.get('MAIL_FROM') if os.environ.get('RESEND_API_KEY') else os.environ.get('SMTP_FROM');message['To']=address;message['Subject']=f'{"Your invoice" if selected=="en" else "Votre facture"} F-{s["id"]:06d} — {document["company"]["name"]}'
                     message.set_content('Hello,\nPlease find your invoice attached.\nThank you for your business.' if selected=='en' else 'Bonjour,\nVeuillez trouver votre facture en pièce jointe.\nMerci de votre confiance.')
                     message.add_attachment(content,maintype='application',subtype='pdf',filename=f'{"Invoice" if selected=="en" else "Facture"}-F-{s["id"]:06d}.pdf')
+                    if os.environ.get('RESEND_API_KEY'):
+                        payload={'from':str(message['From']),'to':[address],'subject':str(message['Subject']),'text':message.get_body(preferencelist=('plain',)).get_content(),'attachments':[{'filename':f'F-{s["id"]:06d}.pdf','content':base64.b64encode(content).decode()}]}
+                        request=urllib.request.Request('https://api.resend.com/emails',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['RESEND_API_KEY'],'Content-Type':'application/json'},method='POST')
+                        try:
+                            with urllib.request.urlopen(request,timeout=20) as response:
+                                if not 200<=response.status<300: raise ValueError('Le service de messagerie a refusé cet envoi')
+                        except (OSError,urllib.error.URLError): raise ValueError('Le service de messagerie a refusé cet envoi')
+                        audit(c,u,f'Facture #{s["id"]} envoyée par e-mail');c.commit();return self.reply({'ok':True})
                     try:
                         with smtplib.SMTP(os.environ['SMTP_HOST'],int(os.environ.get('SMTP_PORT','587')),timeout=15) as smtp:
                             smtp.starttls(context=ssl.create_default_context())
@@ -284,6 +309,10 @@ class Handler(BaseHTTPRequestHandler):
                     except (OSError,smtplib.SMTPException): raise ValueError('Envoi impossible : vérifiez la configuration SMTP')
                     audit(c,u,f'Facture #{s["id"]} envoyée par e-mail');c.commit();return self.reply({'ok':True})
                 if u['role'] not in ['owner','manager']: return self.reply({'error':'Accès interdit'},403)
+                if path.startswith('/api/payroll/') and method=='POST':
+                    result=payroll.route(c,u,path,d,owned,money,audit);c.commit();return self.reply(result)
+                if path=='/api/mail-status':
+                    return self.reply({'configured':bool((os.environ.get('SMTP_HOST') and os.environ.get('SMTP_FROM')) or (os.environ.get('RESEND_API_KEY') and os.environ.get('MAIL_FROM')))})
                 if path=='/api/cancel' and method=='POST':
                     s=owned(c,'sales',d['id'],u)
                     if s['status']=='Annulée': return self.reply({'ok':True})
@@ -396,6 +425,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not str(v.get('name','')).strip(): raise ValueError('Nom obligatoire')
                     if 'shop_id' in fields[t]: owned(c,'shops',v['shop_id'],u)
                     if t=='salaries':
+                        payroll.check_period(c,u,v['employee_id'],v['date'])
                         employee=owned(c,'employees',v['employee_id'],u)
                         if int(v['shop_id'])!=employee['shop_id']: raise ValueError('Boutique incompatible')
                     if t=='users':
@@ -411,6 +441,7 @@ class Handler(BaseHTTPRequestHandler):
                         if v['quantity']<0: raise ValueError('Quantité invalide')
                     keys=['company_id']+fields[t]; vals=[u['company_id']]+[v.get(f,'') for f in fields[t]]
                     ident=c.execute(f'INSERT INTO {t}({",".join(keys)}) VALUES({",".join("?" for _ in keys)})',vals).lastrowid
+                    if t=='salaries': c.execute('INSERT INTO payroll_details VALUES(?,?,0,0,?)',(ident,v['amount'],json.dumps(payroll.snapshot(c,u,employee))))
                     if t=='users' and v['role']!='owner': c.execute('INSERT INTO user_shops(user_id,shop_id) VALUES(?,?)',(ident,v['assigned_shop']))
                     if t=='products': c.execute('INSERT INTO movements(company_id,product_id,quantity,reason,date,user_id) VALUES(?,?,?,?,?,?)',(u['company_id'],ident,v['quantity'],'Stock initial',now(),u['id']))
                     audit(c,u,f'Création {t} #{ident}'); c.commit(); return self.reply({'id':ident})

@@ -186,7 +186,7 @@ function render() {
     passwordButton.textContent = tr("Mon mot de passe");
     passwordButton.onclick = () => changePassword(false);
     $(".heading .actions").prepend(passwordButton);
-    b.textContent = tr("Informations de facturation");
+    b.textContent = tr("Entreprise & logo");
     b.onclick = companySettings;
     $(".heading .actions").prepend(b);
   }
@@ -232,7 +232,7 @@ function metrics() {
       sum(a, "bank") -
       sum(com, "amount") -
       sum(expenses, "amount") -
-      sum(salary, "amount");
+      sum(salary, "expense_amount");
   return {
     a,
     com,
@@ -304,7 +304,7 @@ function chargeChart(m) {
   const values = [
       ["Marchandises", sum(m.a, "cost"), "#176b52"],
       ["Commissions", sum(m.com, "amount"), "#7ea888"],
-      ["Salaires", sum(m.salary, "amount"), "#d4dfbd"],
+      ["Salaires", sum(m.salary, "expense_amount"), "#d4dfbd"],
       [
         "Autres charges",
         sum(m.expenses, "amount") + sum(m.a, "shipping") + sum(m.a, "bank"),
@@ -478,6 +478,7 @@ function content() {
       break;
     case "employees":
       html =
+        `<button id="prepare-payroll" class="primary">Préparer les salaires du mois</button> ${state.user.role === "owner" ? '<button id="payroll-policy">Paramètres de paie marocaine</button>' : ""}<p class="note">Salaire de référence repris automatiquement, sans doublon. Les paiements restent à confirmer.</p>` +
         table(
           ["Employé", "Poste", "Boutique", "Salaire de référence", "Actions"],
           filter(rows("employees")).map((e) => [
@@ -485,7 +486,7 @@ function content() {
             esc(e.position),
             esc(shopName(e.shop_id)),
             cash(e.salary),
-            `<button data-edit="employees:${e.id}">Modifier</button> <button data-salary="${e.id}">Déclarer un salaire</button>`,
+            `<button data-edit="employees:${e.id}">Modifier</button> <button data-pay-profile="${e.id}">CIN / CNSS</button> <button data-salary="${e.id}">Déclarer un salaire</button>`,
           ]),
           "Votre équipe",
         ) +
@@ -497,9 +498,7 @@ function content() {
             esc(s.date),
             cash(s.amount),
             cash(s.paid),
-            s.paid < s.amount
-              ? `<button data-pay="salaries:${s.id}">Régler</button>`
-              : "—",
+            `<button data-payslip="${s.id}">Fiche PDF</button> ${!s.paid ? `<button data-pay-adjust="${s.id}">Primes / retenues</button>` : ""} ${s.paid < s.amount ? `<button data-pay="salaries:${s.id}">Régler</button>` : ""}`,
           ]),
           "Suivi des salaires",
         );
@@ -577,6 +576,19 @@ function bindContent() {
         }
       }),
   );
+  if (page === "employees") {
+    if ($("#payroll-policy")) $("#payroll-policy").onclick = payrollPolicy;
+    document.querySelectorAll("[data-pay-profile]").forEach(b => b.onclick = () => {
+      const e = state.employees.find(e => e.id === +b.dataset.payProfile);
+      modal("Dossier de paie", `${field("cin", "CIN", "text", e.cin || "")}${field("cnss", "Numéro CNSS", "text", e.cnss || "")}${field("dependants", "Personnes à charge (0 à 6)", "number", e.dependants || 0)}`, d => api("payroll/profile", {...d,id:e.id}));
+    });
+    $("#prepare-payroll").onclick = () => modal("Préparer les salaires du mois", `${field("month", "Mois", "month", month)}<label><input type="checkbox" name="morocco" value="1"> Bulletin marocain : salaire de référence brut, CNSS, AMO et IR</label><p class="note">Les salaires déjà préparés sont conservés. Aucun paiement automatique.</p>`, d => api("payroll/prepare", {...d, shop_id: shop || null}));
+    document.querySelectorAll("[data-payslip]").forEach(b => b.onclick = () => downloadPayslip(+b.dataset.payslip));
+    document.querySelectorAll("[data-pay-adjust]").forEach(b => b.onclick = () => {
+      const r = state.salaries.find(r => r.id === +b.dataset.payAdjust);
+      modal("Primes / retenues", `${field("bonus", "Primes (MAD)", "number", (r.bonus || 0) / 100)}${field("deductions", "Retenues / avances (MAD)", "number", (r.deductions || 0) / 100)}`, d => api("payroll/adjust", {...d, id:r.id}));
+    });
+  }
   if ($("#search"))
     $("#search").oninput = (e) => {
       const pos = e.target.selectionStart;
@@ -793,7 +805,7 @@ function newSale() {
         [10, "10 %"],
         [20, "20 %"],
       ],
-    )}${field("shipping", "Shipping supporté (déduit de l’assiette)", "number", 0)}${field("bank", "Frais bancaires", "number", 0)}${field("paid", "Montant encaissé", "number", 0)}</div><div class="section-label">COMMISSIONS ET INTERVENANTS</div><p class="note">Pour plusieurs vendeurs : même enveloppe (taux ou fixe), parts totalisant 100 %. Les guides et agences sont calculés indépendamment sur HT après remise − shipping.</p><div id="commission-lines"></div><button type="button" id="add-commission">＋ Ajouter un bénéficiaire</button><div id="sale-totals" class="totals"></div>`,
+    )}${field("shipping", "Livraison à votre charge (MAD)", "number", 0)}${field("bank_method", "Calcul des frais bancaires", "select", "fixed", [["fixed",tr("Montant fixe (MAD)")],["percent",tr("Pourcentage du total TTC")]])}${field("bank_value", "Frais bancaires : montant ou taux %", "number", 0)}${field("paid", "Montant encaissé", "number", 0)}</div><div class="section-label">COMMISSIONS ET INTERVENANTS</div><p class="note">Facultatif : ajoutez un guide, une agence ou un vendeur. Les commissions sont calculées sur le montant HT après remise et livraison. Entre vendeurs, indiquez la même commission puis répartissez-la.</p><div id="commission-lines"></div><button type="button" id="add-commission">＋ Ajouter un bénéficiaire</button><div id="sale-totals" class="totals"></div>`,
     async (d) => {
       d.key = saleKey;
       d.client = d.client || "Client de passage";
@@ -872,9 +884,21 @@ function addCommission() {
   const el = document.createElement("div");
   el.className = "commission-line";
   el.innerHTML = BazarI18n.html(
-    `<div><input class="c-name" placeholder="Bénéficiaire" required><select class="c-user" title="Compte vendeur bénéficiaire"><option value="">Compte vendeur (facultatif)</option>${(state.users || []).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("")}</select></div><select class="c-kind">${["Guide", "Agence", "Chauffeur", "Vendeur", "Autre"].map((x) => `<option>${x}</option>`).join("")}</select><select class="c-method"><option value="percent">Taux %</option><option value="fixed">Fixe MAD</option></select><input class="c-value" type="number" min="0" step="0.01" placeholder="Taux / montant" value="0"><input class="c-share" type="number" min="0" max="100" value="100" title="Part du vendeur en %"><button type="button">×</button>`,
+    `<div><input class="c-name" placeholder="Bénéficiaire" required><select class="c-user" title="Compte vendeur bénéficiaire"><option value="">Compte vendeur (facultatif)</option>${(state.users || []).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("")}</select></div><select class="c-kind">${["Guide", "Agence", "Chauffeur", "Vendeur", "Autre"].map((x) => `<option>${x}</option>`).join("")}</select><select class="c-method"><option value="percent">Taux %</option><option value="fixed">Fixe MAD</option></select><label>Commission : taux % ou montant MAD<input class="c-value" type="number" min="0" step="0.01" placeholder="Taux / montant" value="0"></label><label class="seller-share" hidden>Part du vendeur (%)<input class="c-share" type="number" min="0" max="100" value="100" title="Part du vendeur en %"></label><button type="button">×</button>`,
   );
   $("#commission-lines").append(el);
+  const refresh = () => {
+    const seller = el.querySelector(".c-kind").value === "Vendeur";
+    el.querySelector(".seller-share").hidden = !seller;
+    el.querySelector(".c-user").hidden = !seller;
+    updateTotals();
+  };
+  el.querySelector(".c-kind").onchange = refresh;
+  el.querySelector(".c-user").onchange = () => {
+    const u = (state.users || []).find(u => u.id === +el.querySelector(".c-user").value);
+    if (u) el.querySelector(".c-name").value = u.name;
+  };
+  refresh();
   el.querySelector("button").onclick = () => {
     el.remove();
     updateTotals();
@@ -895,6 +919,7 @@ function updateTotals() {
     shipping = val("shipping"),
     base = Math.max(0, ht - shipping),
     tax = Math.round((ht * +$("#f-vat").value) / 100);
+  const bank = $("#f-bank_method").value === "percent" ? Math.round((ht + tax) * (+$("#f-bank_value").value || 0) / 100) : val("bank_value");
   let commission = 0;
   document.querySelectorAll(".commission-line").forEach((e) => {
     let c =
@@ -910,9 +935,10 @@ function updateTotals() {
       ["Total TTC", ht + tax],
       ["Assiette commissions", base],
       ["Commissions", commission],
+      ["Frais bancaires", bank],
       [
         "Contribution estimée HT ≈",
-        ht - cost - shipping - val("bank") - commission,
+        ht - cost - shipping - bank - commission,
       ],
     ]
       .map(([l, v]) => `<span>${l}<b>${cash(v)}</b></span>`)
@@ -940,7 +966,12 @@ async function invoice(id, invoiceLanguage = language) {
     $("#invoice-language").onchange = (e) => invoice(id, e.target.value);
     $("#download-invoice").onclick = () => downloadInvoice(id, invoiceLanguage);
     if ($("#email-invoice"))
-      $("#email-invoice").onclick = () =>
+      $("#email-invoice").onclick = async () => {
+        const status = await api("mail-status");
+        if (!status.configured) {
+          modal("Messagerie à activer", "<p>Le service d’envoi des e-mails n’est pas encore configuré par l’administrateur. Téléchargez le PDF pour l’envoyer avec votre messagerie habituelle.</p>", null);
+          return;
+        }
         modal(
           "Envoyer la facture",
           field("email", "Destinataire", "email"),
@@ -952,6 +983,7 @@ async function invoice(id, invoiceLanguage = language) {
             }),
           "Envoyer",
         );
+      };
     $("#print-invoice").onclick = () => {
       document.body.classList.add("printing");
       window.print();
@@ -1152,8 +1184,8 @@ function companySettings() {
   const s = state.settings || {};
   let logo = s.logo || "";
   modal(
-    "Informations de facturation",
-    `<p class="note">Les nouvelles factures conservent ces informations au moment de la vente. Les anciennes factures restent inchangées.</p><div class="form-grid">${field("address", "Adresse légale", "text", s.address || "")}${field("ice", "ICE", "text", s.ice || "")}${field("tax_id", "Identifiant fiscal", "text", s.tax_id || "")}<div class="field"><label>Logo PNG / JPEG (500 Ko maximum)</label><input type="file" id="company-logo" accept="image/png,image/jpeg"></div></div>`,
+    "Entreprise & logo",
+    `<p class="note">Les nouvelles factures conservent ces informations au moment de la vente. Les anciennes factures restent inchangées.</p><div class="form-grid">${field("address", "Adresse légale", "text", s.address || "")}${field("ice", "ICE", "text", s.ice || "")}${field("tax_id", "Identifiant fiscal", "text", s.tax_id || "")}<div class="field"><img id="logo-preview" src="${esc(logo)}" alt="Logo" style="max-width:120px;max-height:80px" ${logo ? "" : "hidden"}><label>Logo PNG / JPEG (500 Ko maximum)</label><input type="file" id="company-logo" accept="image/png,image/jpeg"></div></div>`,
     (d) => api("company-settings", { ...d, logo }),
   );
   $("#company-logo").onchange = async (e) => {
@@ -1168,6 +1200,8 @@ function companySettings() {
       r.onload = () => resolve(r.result);
       r.readAsDataURL(f);
     });
+    $("#logo-preview").src = logo;
+    $("#logo-preview").hidden = false;
   };
 }
 
@@ -1280,4 +1314,25 @@ function mountDemoNotice() {
     document.querySelector("main") ||
     document.querySelector(".auth-form > div");
   if (target) target.prepend(notice);
+}
+
+async function downloadPayslip(id) {
+  try {
+    const d = await api("payroll/pdf", {id, language});
+    const bytes = Uint8Array.from(atob(d.content), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], {type:"application/pdf"}));
+    const a = document.createElement("a"); a.href = url; a.download = d.filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch(e) { toast(e.message, false); }
+}
+
+function payrollPolicy() {
+  const reference = {year:2025,cnss_rate:4.48,cnss_ceiling:6000,amo_rate:2.26,professional_threshold:78000,professional_low_rate:35,professional_high_rate:25,professional_cap:35000,family_annual:500,brackets:[[0,0,0],[40000,10,4000],[60000,20,10000],[80000,30,18000],[100000,34,22000],[180000,37,27400]]};
+  const p = state.payroll_policy || reference;
+  const labels = {year:"Année du barème",cnss_rate:"CNSS salarié (%)",cnss_ceiling:"Plafond CNSS mensuel (MAD)",amo_rate:"AMO salarié (%)",professional_threshold:"Seuil frais professionnels annuel (MAD)",professional_low_rate:"Frais professionnels sous le seuil (%)",professional_high_rate:"Frais professionnels au-dessus du seuil (%)",professional_cap:"Plafond frais professionnels annuel (MAD)",family_annual:"Déduction annuelle par personne à charge (MAD)"};
+  modal("Paramètres de paie marocaine", `<p class="note">Référence indicative 2025. Faites vérifier les taux et le barème de l’année par votre comptable. Ces paramètres couvrent le cas général des salariés du secteur privé, sans régime particulier.</p><div class="form-grid">${Object.entries(labels).map(([k,l]) => field(k,l,"number",p[k])).join("")}</div><h3>Barème IR annuel (MAD)</h3><p class="note">Seuil de revenu imposable · taux % · somme à déduire</p>${p.brackets.map((b,i)=>`<div class="form-grid">${b.map((v,j)=>field(`bracket_${i}_${j}`,["Seuil", "Taux %", "Somme à déduire"][j],"number",v)).join("")}</div>`).join("")}<label><input type="checkbox" name="validated" required> Barème et paramètres vérifiés pour cette année</label>`, d => {
+    const policy = {validated:d.validated === "on",brackets:p.brackets.map((b,i)=>b.map((_,j)=>+d[`bracket_${i}_${j}`]))};
+    Object.keys(labels).forEach(k=>policy[k]=+d[k]);
+    return api("payroll/policy",{policy});
+  });
 }
