@@ -2,7 +2,7 @@
 
 [Documentation française](README.md) · **English**
 
-A French/English responsive web application for Moroccan retailers. Python JSON API, SQLite relational database and ReportLab A4 invoices. This is a working development/acceptance version, not a fully production-approved commercial SaaS.
+A French/English responsive web application for Moroccan retailers. Python JSON API, SQLite relational database and ReportLab A4 invoices. This version includes publisher administration, customer provisioning, subscription plans and manual payments. Public deployment and automatic billing still require your external accounts, credentials and production acceptance.
 
 ## Get the source and start
 
@@ -17,7 +17,7 @@ cd THEBERERHOUSERUG
 
 On Windows, use the equivalent virtual environment commands (`python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, `.venv\Scripts\python server.py`). The install shell script is intended for Linux/macOS and the cloud environment.
 
-The server listens on **port 3000**. Open the application and select **Create my workspace** to register your company, name, email and a password of at least ten characters. A first shop is created automatically. No default account or password is installed. Data is stored in `.data/bazar.sqlite3` and is not committed to Git.
+The server listens on **port 3000**. Public registration is closed by default. Run `.venv/bin/python scripts/create_platform_admin.py` in a trusted terminal to create your publisher account (masked password, at least 12 characters). Sign in and provision each customer company, its administrator and first shop. Customers must replace their temporary password at first login and can then manage their shops and users. No default account or password is installed. Data is stored in `.data/bazar.sqlite3` and is not committed to Git.
 
 If a checkout already exists, use it and preserve any local changes before updating.
 
@@ -88,6 +88,44 @@ To restore: stop the app, retain a copy of the current database, restore the bac
 
 For a private pilot, use a persistent database volume, a process supervisor and an HTTPS reverse proxy with `COOKIE_SECURE=1`, a 2 MB request limit and rate limiting for login/registration. The bundled HTTP server is intended for development and private acceptance testing, not direct public Internet exposure.
 
-Before commercial launch, complete Moroccan tax/legal validation, independent security review, operational monitoring, external backups and load testing. EUR/USD and historical exchange rates, global SaaS company administration, custom permissions, multiple assigned shops per non-owner account, partial returns/credit notes, customer-billed delivery, configurable tax rates, subscriptions and transfers remain to be implemented. Lists currently load in full without server-side pagination. There is no Arabic UI or offline mode. Customer records are not yet relationally linked to sales. See `docs/RECETTE.md` for the detailed coverage matrix.
+Before commercial launch, complete Moroccan tax/legal validation, independent security review, operational monitoring, external backups and load testing. EUR/USD and historical exchange rates, custom permissions, multiple assigned shops per non-owner account, partial returns/credit notes, customer-billed delivery, configurable tax rates, automatic subscription billing and transfers remain to be implemented. Lists currently load in full without server-side pagination. There is no Arabic UI or offline mode. Customer records are not yet relationally linked to sales. See `docs/RECETTE.md` for the detailed coverage matrix.
 
 Never commit `.data/`, `.venv/`, `.env`, backups or SMTP credentials. These are excluded by `.gitignore`. The application code and documentation are maintained on the GitHub repository's `main` branch.
+
+## Publisher subscriptions
+
+The publisher dashboard is separate from customer ERP data. Create your own plans with monthly MAD pricing, shop quotas and active-user quotas. New companies receive a 14-day trial. Record only transfers/cash payments actually received, with a unique reference. Payments extend coverage by calendar months; they are not automatic card charges. Manual suspension is not removed by a payment and must be explicitly lifted. Expiry, suspension and quotas are enforced by the API, including existing sessions. Restarting the app does not renew trials.
+
+Publishers can reset a customer's administrator access without knowing their current password; sessions are revoked and a new personal password is required. Subscription receipts and shop sales are kept separate. The subscription ledger is not a statutory tax invoice. A merchant provider, verified business account and signed/idempotent webhooks are still required before automatic payments.
+
+See `docs/SAAS.md` for the full publisher workflow (French).
+
+## Persistent deployment with Cloudflare
+
+Cloudflare Tunnel routes HTTPS traffic to a persistent Docker/Gunicorn server; it does not host the Python/SQLite application by itself. Provide a Linux VPS/server that stays on, Docker/Compose, a domain in your Cloudflare account and a remotely managed tunnel. No domain/server purchase or public deployment has been performed.
+
+```bash
+cp deploy.env.example .env
+chmod 600 .env
+# Set your real HTTPS domain and secrets privately.
+docker compose build
+docker compose up -d app backup
+docker compose exec app python scripts/create_platform_admin.py
+# After configuring the tunnel token in .env:
+docker compose --profile cloudflare up -d
+```
+
+Configure the public hostname's tunnel service as `http://app:3000`. `PUBLIC_BASE_URL` must match the real HTTPS origin. Secure cookies remain enabled. The backend port binds only to loopback; do not expose it directly. Do not cache authenticated/API responses. Persistent data and six-hour backups use separate Docker volumes; never run `docker compose down -v`. Off-server encrypted backups, monitoring, legal acceptance and load testing are still required. SQLite WAL supports a single persistent server, not horizontally replicated independent databases.
+
+For local Gunicorn without Docker: `.venv/bin/gunicorn --config gunicorn.conf.py wsgi:application`. The original HTTP server remains development-only. `BAZAR_ALLOW_SIGNUP=1` is an explicit demo/test option and must stay off commercially.
+
+Docker builds in the current environment lacked outbound DNS. The tested alternative downloads wheels over verified HTTPS and then installs offline (no TLS/checksum verification disabled):
+
+```bash
+.venv/bin/python -m pip download --only-binary=:all: --dest .build/wheels -r requirements.txt
+docker build --build-arg DEPENDENCY_STAGE=offline -t bazar-erp:local .
+```
+
+Use wheels matching Python 3.12 and the target platform. Full deployment details and restore procedures are in `docs/CLOUDFLARE.md`.
+
+37 tests passed, also inside Docker. The publisher-to-customer browser workflow, quota enforcement, payment, suspension, restart persistence and backup restoration into a separate database were verified. The official Cloudflare connector image was verified by digest and its binary executed, but no authenticated production tunnel was connected. A GitHub Actions workflow is included; a remote CI run is not claimed without observing it.

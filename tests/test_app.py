@@ -18,10 +18,12 @@ class Client:
 class Integration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from unittest.mock import patch
+        cls.signup_patch=patch.dict(server.os.environ,{'BAZAR_ALLOW_SIGNUP':'1'});cls.signup_patch.start()
         cls.tmp=tempfile.TemporaryDirectory();server.DB=cls.tmp.name+'/test.sqlite3';server.init()
         cls.http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler); cls.thread=threading.Thread(target=cls.http.serve_forever,daemon=True);cls.thread.start();cls.base=f'http://127.0.0.1:{cls.http.server_port}'
     @classmethod
-    def tearDownClass(cls):cls.http.shutdown();cls.http.server_close();cls.tmp.cleanup()
+    def tearDownClass(cls):cls.http.shutdown();cls.http.server_close();cls.tmp.cleanup();cls.signup_patch.stop()
     def setUp(self):
         self.a=Client(self.base);self.b=Client(self.base)
         import secrets

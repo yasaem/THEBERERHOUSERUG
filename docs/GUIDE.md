@@ -2,7 +2,7 @@
 
 **Langues :** choisissez Français ou English avant connexion ou dans la barre supérieure. Le choix est mémorisé dans le navigateur. Dans une facture, un second sélecteur choisit la langue du document sans changer l’interface. Les PDF et e-mails utilisent cette langue. Les données saisies restent inchangées.
 
-1. Choisissez **Créer mon espace**, puis saisissez votre entreprise, votre nom, votre e-mail et un mot de passe d’au moins dix caractères. Votre boutique principale est créée automatiquement.
+1. Votre fournisseur crée votre entreprise et votre compte administrateur. Connectez-vous avec les accès provisoires puis choisissez votre mot de passe personnel (12 caractères minimum). Votre boutique principale est déjà créée. Si vous êtes l’éditeur, consultez [le guide SaaS](SAAS.md) pour initialiser votre compte et créer vos clients.
 2. Dans **Boutiques**, ajoutez vos autres points de vente. Le filtre en haut change la vue ; aucune sélection signifie une consolidation de l’entreprise.
 3. Dans **Produits & stock**, ajoutez vos articles ou cliquez sur **Importer**. Sélectionnez une boutique, un fichier CSV/Excel, associez les colonnes puis vérifiez l’aperçu. Nom, référence et quantité sont obligatoires. Les erreurs et doublons annulent tout l’import. Le classeur Excel doit avoir une première feuille standard, sans cellules fusionnées ni formules à recalculer.
 4. Utilisez **Ajuster** pour corriger une quantité avec un motif ; **Modifier** ne change pas l’historique des ventes. L’archivage empêche les nouvelles ventes de l’article sans le supprimer.

@@ -2,7 +2,7 @@
 
 **Français** · [English documentation](README_EN.md)
 
-Application web bilingue français / anglais pour les commerces marocains. Interface responsive, API Python, SQLite, PDF ReportLab. Cette première version opérationnelle permet une recette métier locale ; elle n’est pas encore un SaaS commercial complet.
+Application web bilingue français / anglais pour les commerces marocains. Interface responsive, API Python, SQLite, PDF ReportLab. Cette version ajoute l’espace éditeur SaaS, la création des entreprises clientes, les formules et les règlements manuels. Le déploiement public et le paiement automatique nécessitent encore vos accès externes et une recette de production.
 
 ## Récupérer le code
 
@@ -22,12 +22,48 @@ Python 3.12 ou supérieur.
 .venv/bin/python server.py
 ```
 
-Le serveur écoute sur le port **3000** (`PORT` et `HOST` configurables). Créez votre entreprise depuis l’écran d’accueil. Aucun compte ni mot de passe par défaut n’est installé. La base locale `.data/bazar.sqlite3` est créée automatiquement et exclue de Git.
+Le serveur de développement écoute sur le port **3000** (`PORT` et `HOST` configurables). **L’inscription publique est fermée par défaut.** Créez d’abord votre compte éditeur avec la commande ci-dessous, connectez-vous puis créez les comptes de vos clients depuis cet espace. Aucun compte ni mot de passe par défaut n’est installé. La base locale `.data/bazar.sqlite3` est créée automatiquement et exclue de Git.
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 ```
+
+## Exploitation SaaS et compte éditeur
+
+```bash
+.venv/bin/python scripts/create_platform_admin.py
+```
+
+La saisie du mot de passe est masquée. L’éditeur crée chaque entreprise, son administrateur et sa première boutique. Le client remplace son mot de passe provisoire puis gère ses boutiques et utilisateurs. Les droits, quotas et l’état de l’abonnement sont vérifiés par le serveur sur chaque requête.
+
+Créez vos formules (prix mensuel MAD, limites de boutiques et d’utilisateurs), enregistrez les virements/espèces reçus et renouvelez la période. Vous pouvez suspendre ou réactiver un accès en conservant les données. Aucun débit bancaire automatique n’est effectué. Les nouvelles entreprises ont un essai de 14 jours ; redémarrer l’application ne le prolonge pas.
+
+- [Guide éditeur et abonnements](docs/SAAS.md)
+- [Déploiement Docker et Cloudflare](docs/CLOUDFLARE.md)
+
+Pour un hébergement persistant :
+
+```bash
+cp deploy.env.example .env
+chmod 600 .env
+# Renseigner le domaine HTTPS et les secrets dans .env, sans les publier.
+docker compose build
+docker compose up -d app backup
+docker compose exec app python scripts/create_platform_admin.py
+# Après configuration du tunnel Cloudflare dans .env :
+docker compose --profile cloudflare up -d
+```
+
+Gunicorn sert l’application, le disque SQLite est conservé dans un volume et un second service réalise une sauvegarde toutes les six heures. Le tunnel nécessite un compte Cloudflare, un domaine et un serveur qui reste allumé. La mise en ligne externe n’est pas encore réalisée faute d’accès fournis. Ne supprimez pas les volumes avec `docker compose down -v`.
+
+Pour un test local sans Docker :
+
+```bash
+.venv/bin/gunicorn --config gunicorn.conf.py wsgi:application
+```
+
+`python server.py` reste disponible pour le développement. Le drapeau `BAZAR_ALLOW_SIGNUP=1` existe uniquement pour les démonstrations et les tests ; ne l’activez pas sur votre service commercial.
 
 ## Choisir français ou anglais
 
@@ -39,7 +75,7 @@ Les traductions d’interface sont dans `static/translations.json`, le moteur da
 
 ## Parcours disponible
 
-- Inscription et connexion, sessions HttpOnly/SameSite et protection CSRF.
+- Comptes clients créés par l’éditeur, connexion, sessions HttpOnly/SameSite et protection CSRF.
 - Entreprises isolées, boutiques et comptes avec quatre rôles. Affectation à une boutique pour les comptes non propriétaires.
 - Catalogue personnalisable, modification, archivage, ajustements justifiés et journal des mouvements.
 - Import CSV UTF-8 / Excel `.xlsx` avec association des colonnes, aperçu, validation atomique et refus des références en doublon. Exemple : [docs/stock-exemple.csv](docs/stock-exemple.csv).
@@ -64,9 +100,9 @@ Une annulation conserve les encaissements dans l’historique. Leur remboursemen
 
 ## Limites par rapport au cahier des charges
 
-Voir [la couverture et les points restant à réaliser](docs/RECETTE.md). Les devises EUR/USD et taux de change, administration globale des entreprises SaaS, permissions personnalisées, affectations multiples de boutiques, retours partiels/avoirs, livraison facturée, taxes configurables, numérotation légale, abonnements et transferts ne sont pas réalisés. Les listes sont chargées intégralement ; la pagination serveur et la validation de charge restent à développer.
+Voir [la couverture et les points restant à réaliser](docs/RECETTE.md). Les devises EUR/USD et taux de change, permissions personnalisées, affectations multiples de boutiques, retours partiels/avoirs, livraison facturée, taxes configurables, numérotation légale, paiements automatiques d’abonnement et transferts ne sont pas réalisés. Les listes sont chargées intégralement ; la pagination serveur et la validation de charge restent à développer.
 
-Avant une mise en production commerciale : validation fiscale marocaine, recette utilisateur, contrôle de sécurité, infrastructure HTTPS, sauvegardes externes, envoi SMTP et architecture de déploiement adaptée. Le serveur HTTP intégré convient au développement et aux pilotes privés.
+Avant une mise en production commerciale : validation fiscale marocaine, recette utilisateur, contrôle de sécurité, infrastructure HTTPS, sauvegardes externes, envoi SMTP et architecture de déploiement adaptée. Le serveur HTTP intégré est réservé au développement ; Gunicorn et Docker sont préparés et testés pour le serveur persistant, sans garantie de charge chiffrée.
 
 ## Documentation
 
@@ -88,3 +124,9 @@ Pour l’e-mail, configurez `SMTP_HOST`, `SMTP_PORT` (587 par défaut), `SMTP_FR
 Pour un pilote derrière un reverse proxy HTTPS : `HOST=127.0.0.1`, `PORT=3000`, `COOKIE_SECURE=1` et volume persistant pour `BAZAR_DB`. Le serveur fourni reste un serveur de développement : voir [les procédures et limites de déploiement](docs/DEPLOIEMENT.md) avant une ouverture publique.
 
 Ne versionnez jamais `.data/`, `.venv/`, `.env`, sauvegardes ou identifiants SMTP ; ces éléments sont exclus par `.gitignore`. Le code et la documentation sont destinés à la branche `main` du dépôt GitHub ci-dessus.
+
+## Validation de cette évolution
+
+37 tests ont été exécutés avec succès, y compris dans le conteneur. Le parcours éditeur/client, les quotas, les paiements, la suspension et le changement obligatoire du mot de passe ont aussi été vérifiés dans Chromium. Le redémarrage d’un conteneur avec volume, une sauvegarde et sa restauration dans une base séparée ont été contrôlés. Le connecteur Cloudflare officiel a été téléchargé avec vérification de digest et exécuté (`--version`), mais aucun tunnel de production n’a été connecté.
+
+Le workflow GitHub Actions vérifie les tests et la syntaxe JavaScript sur chaque push/PR ; sa présence ne signifie pas qu’une exécution distante a déjà été observée.

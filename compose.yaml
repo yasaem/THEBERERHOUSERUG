@@ -1,0 +1,73 @@
+services:
+  app:
+    build: .
+    image: bazar-erp:local
+    restart: unless-stopped
+    init: true
+    environment:
+      BAZAR_DB: /data/bazar.sqlite3
+      BAZAR_ALLOW_SIGNUP: "0"
+      COOKIE_SECURE: "1"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set your HTTPS domain in .env}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - bazar_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 40s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  backup:
+    image: bazar-erp:local
+    restart: unless-stopped
+    init: true
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      BAZAR_DB: /data/bazar.sqlite3
+    volumes:
+      - bazar_data:/data
+      - bazar_backups:/backups
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while true; do python scripts/backup.py --destination /backups || exit 1; sleep 21600; done"]
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "2"
+  cloudflare:
+    image: cloudflare/cloudflared@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+    profiles: [cloudflare]
+    restart: unless-stopped
+    init: true
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: ["tunnel", "--no-autoupdate", "run"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "2"
+volumes:
+  bazar_data:
+  bazar_backups:

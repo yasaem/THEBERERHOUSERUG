@@ -1033,3 +1033,33 @@ aside nav {
 aside nav button {
   flex-shrink: 0;
 }
+.publisher main {
+  max-width: 1600px;
+}
+.account-gate main {
+  max-width: 800px;
+  margin: 8vh auto;
+}
+.account-gate .panel {
+  padding: 40px;
+}
+.publisher .topbar {
+  height: auto;
+  min-height: 84px;
+  gap: 16px;
+  padding-block: 16px;
+}
+@media (max-width: 700px) {
+  .publisher .topbar {
+    flex-wrap: wrap;
+  }
+  .publisher .top-right {
+    flex-wrap: wrap;
+  }
+  .publisher .top-right > span {
+    display: none;
+  }
+  .publisher .brand {
+    font-size: 24px;
+  }
+}

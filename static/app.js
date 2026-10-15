@@ -7,6 +7,7 @@ const $ = (s) => document.querySelector(s),
       maximumFractionDigits: 2,
     }).format((v || 0) / 100),
   cash = (v) => fmt(v) + " MAD";
+let publicConfig = { allow_signup: false };
 let state,
   page = "dashboard",
   shop = "",
@@ -26,6 +27,7 @@ const nav = [
   ["reports", "▥", "Rapports & statistiques"],
   ["shops", "⌂", "Boutiques"],
   ["settings", "⚙", "Paramètres"],
+  ["subscription", "◈", "Mon abonnement"],
 ];
 async function api(path, data) {
   const r = await fetch("/api/" + path, {
@@ -58,13 +60,16 @@ async function load() {
 }
 function auth() {
   state = null;
+  if (!publicConfig.allow_signup) register = false;
   $("#app").innerHTML = BazarI18n.html(
     `<div class="auth"><section class="auth-story"><div class="brand"><span class="logo">b</span>bazar<small>GESTION DE COMMERCE</small></div><div><div class="nav-label" style="padding:0;color:#b7cbbf">PENSÉ POUR VOTRE COMMERCE</div><h1>Votre savoir-faire.<br>Notre sens<br>de la gestion.</h1><p>Des premières ventes aux grandes ambitions, gardez une vision claire de vos boutiques, de vos équipes et de vos résultats.</p></div><small style="color:#8ca99b">Fait pour les commerces d’ici. · Maroc</small></section><section class="auth-form"><div><h2>${register ? "Bienvenue chez Bazar" : "Heureux de vous retrouver"}</h2><p class="subtitle">${register ? "Créez votre espace et ouvrez votre première boutique." : "Connectez-vous à votre espace de gestion."}</p><form id="auth-form">${register ? '<label>Votre entreprise</label><input name="company" placeholder="La Maison Berbère" required><label>Votre nom</label><input name="name" placeholder="Prénom et nom" required>' : ""}<label>Adresse e-mail</label><input name="email" type="email" autocomplete="username" placeholder="vous@entreprise.ma" required><label>Mot de passe</label><input name="password" type="password" autocomplete="${register ? "new-password" : "current-password"}" minlength="10" placeholder="10 caractères minimum" required><div class="error" id="auth-error"></div><button class="primary">${register ? "Créer mon espace →" : "Se connecter →"}</button></form><div class="auth-switch">${register ? "Déjà un compte ?" : "Vous débutez sur Bazar ?"} <button id="switch-auth">${register ? "Se connecter" : "Créer mon espace"}</button></div><p class="note" style="text-align:center;margin-top:35px">Un espace privé pour votre entreprise.<br>Vos données sont enregistrées dans votre environnement.</p></div></section></div>`,
   );
-  $("#switch-auth").onclick = () => {
-    register = !register;
-    auth();
-  };
+  if (!publicConfig.allow_signup) $(".auth-switch").remove();
+  if ($("#switch-auth"))
+    $("#switch-auth").onclick = () => {
+      register = !register;
+      auth();
+    };
   mountLanguageSwitch();
   $("#auth-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -98,19 +103,35 @@ function sum(a, k) {
 function shopName(id) {
   return state.shops.find((s) => s.id === id)?.name || "—";
 }
+function statusLabel(value) {
+  return tr(
+    {
+      trial: "Essai",
+      active: "Actif",
+      expired: "Expiré",
+      suspended: "Suspendu",
+      past_due: "Impayé",
+      cancelled: "Annulé",
+    }[value] || value,
+  );
+}
 function badge(s) {
-  return `<span class="badge ${s === "Annulée" ? "gray" : s === "Partielle" || s === "À payer" ? "amber" : ""}">● ${esc(tr(s))}</span>`;
+  return `<span class="badge ${s === "Annulée" ? "gray" : s === "Partielle" || s === "À payer" ? "amber" : ""}">● ${esc(statusLabel(s))}</span>`;
 }
 function isOwner() {
   return ["owner", "manager"].includes(state.user.role);
 }
 function render() {
+  if (state.password_required || state.blocked) return accountGate();
+  if (state.platform) return publisherRender();
   const available = nav.filter(
     ([id]) =>
       (isOwner() &&
         !(
           state.user.role === "manager" &&
-          ["settings", "shops", "clients", "partners"].includes(id)
+          ["settings", "shops", "clients", "partners", "subscription"].includes(
+            id,
+          )
         )) ||
       [
         "products",
@@ -149,6 +170,10 @@ function render() {
     render();
   };
   if ($("#new-sale")) $("#new-sale").onclick = newSale;
+  if (page === "subscription") {
+    if ($("#add")) $("#add").remove();
+    if ($("#export")) $("#export").remove();
+  }
   if ($("#add"))
     $("#add").onclick = () =>
       createForm(
@@ -157,6 +182,10 @@ function render() {
   if ($("#export")) $("#export").onclick = exportData;
   if (page === "settings" && state.user.role === "owner") {
     const b = document.createElement("button");
+    const passwordButton = document.createElement("button");
+    passwordButton.textContent = tr("Mon mot de passe");
+    passwordButton.onclick = () => changePassword(false);
+    $(".heading .actions").prepend(passwordButton);
     b.textContent = tr("Informations de facturation");
     b.onclick = companySettings;
     $(".heading .actions").prepend(b);
@@ -330,6 +359,9 @@ function content() {
         ),
     );
   switch (page) {
+    case "subscription":
+      html = subscriptionPage();
+      break;
     case "dashboard":
       html = dashboard();
       break;
@@ -582,6 +614,7 @@ function bindContent() {
 }
 function modal(title, body, submit, label = "Enregistrer") {
   const m = $("#modal");
+  m.oncancel = null;
   m.innerHTML = BazarI18n.html(
     `<div class="modal-head"><h3>${title}</h3><button class="quiet" id="close-modal">✕</button></div><form id="modal-form">${body}<div class="error" id="modal-error"></div><div class="form-actions"><button type="button" id="cancel-modal">Annuler</button>${submit ? `<button class="primary" id="submit-modal">${label}</button>` : ""}</div></form>`,
   );
@@ -602,7 +635,7 @@ function modal(title, body, submit, label = "Enregistrer") {
   if (!m.open) m.showModal();
 }
 function field(name, label, type = "text", value = "", options = []) {
-  return `<div class="field"><label for="f-${name}">${label}</label>${type === "select" ? `<select id="f-${name}" name="${name}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(["role", "active", "kind"].includes(name) ? tr(l) : l)}</option>`).join("")}</select>` : `<input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${type === "number" ? 'min="0" step="0.01"' : ""} ${["name", "password"].includes(name) ? "required" : ""}>`}</div>`;
+  return `<div class="field"><label for="f-${name}">${label}</label>${type === "select" ? `<select id="f-${name}" name="${name}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(["role", "active", "kind", "method"].includes(name) ? tr(l) : l)}</option>`).join("")}</select>` : `<input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${type === "number" ? 'min="0" step="0.01"' : ""} ${["name", "password"].includes(name) ? "required" : ""}>`}</div>`;
 }
 function createForm(t, employee) {
   if (t === "commissions") return newSale();
@@ -1017,10 +1050,15 @@ function exportData() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-BazarI18n.ready.then(load).catch(() => {
-  $("#app").textContent =
-    "Impossible de charger les traductions / Unable to load translations";
-});
+BazarI18n.ready
+  .then(async () => {
+    publicConfig = await api("public-config");
+    await load();
+  })
+  .catch(() => {
+    $("#app").textContent =
+      "Impossible de charger les traductions / Unable to load translations";
+  });
 
 async function importStock() {
   modal(

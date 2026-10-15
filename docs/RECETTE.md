@@ -25,7 +25,7 @@ Cette livraison est une première version exécutable. Les points ouverts du cah
 
 ## Écarts et extensions nécessaires
 
-- Pas d’administration globale SaaS (entreprises actives/inactives, limites, abonnements). L’inscription crée une entreprise indépendante et un propriétaire.
+- Administration éditeur, création des entreprises, formules, quotas, suspensions et règlements manuels réalisés. Paiement automatique, portail marchand, factures fiscales SaaS et renouvellements par webhook restent à intégrer. L’inscription publique est désactivée par défaut.
 - MAD uniquement. EUR/USD, conversions et historiques de taux nécessitent des règles validées avant consolidation.
 - Vendeurs : parts en pourcentage d’une enveloppe commune, taux ou fixe ; pas d’interface de pondération ou de répartition par montants individuels.
 - TVA globale 0/10/20 %, remise globale HT. Pas de taux personnalisés, taxes par ligne ni shipping refacturé au client.
@@ -35,8 +35,8 @@ Cette livraison est une première version exécutable. Les points ouverts du cah
 - Salaires de gestion, sans paie légale. Déclaration mensuelle manuelle, sans unicité automatique par période.
 - CSV pour les exports, pas de génération de classeur XLSX. Excel en import : première feuille standard, pas de macros, `.xls` ni recalcul de formules.
 - Pas de photos d’articles, justificatifs, échéancier, brouillons, transferts, notifications, interface arabe ou fonctionnement hors ligne.
-- Pas de pagination serveur ni benchmark à grand historique ; serveur HTTP de développement, pas de migration PostgreSQL.
-- Sauvegarde disponible, mais planification, copie externe, restauration opérationnelle et HTTPS relèvent du déploiement.
+- Pas de pagination serveur ni benchmark à grand historique ; transport Gunicorn/WSGI et Docker testés, pas de migration PostgreSQL ni de test de charge commercial.
+- Sauvegardes toutes les six heures préparées dans Compose ; sauvegarde et restauration sur une base séparée testées. Copie externe, supervision et disponibilité du domaine Cloudflare restent à configurer.
 
 ## Recette manuelle conseillée
 

@@ -1,3 +1,5 @@
+> Pour le déploiement persistant Gunicorn/Docker avec sauvegardes et Cloudflare, suivez [CLOUDFLARE.md](CLOUDFLARE.md). Les commandes `python server.py` ci-dessous sont réservées au développement. L’inscription publique est désormais désactivée par défaut.
+
 # Exécution et sauvegardes
 
 ## Développement ou pilote privé

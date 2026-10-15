@@ -61,3 +61,7 @@ Séparer domaine, persistence et transport lors de l’extension des modules. Po
 ## Internationalisation
 
 Catalogue partagé `static/translations.json` pour interface et erreurs API, chargé avant le rendu. Les fragments HTML traduisent uniquement le texte de présentation et les attributs accessibles. Les données échappées utilisent des marqueurs opaques puis sont réinsérées après traduction ; elles ne passent pas dans le catalogue. Les valeurs canoniques des sélecteurs et les paramètres métier restent stables. Les documents PDF possèdent leurs libellés explicites et acceptent une langue indépendante, validée par le serveur.
+
+## Couche SaaS et transport persistant
+
+`saas.py` contient les formules, comptes entreprises, abonnements, règlements idempotents, quotas et journal éditeur. Un utilisateur `platform_admin` sans `company_id` accède uniquement à cette administration ; les rôles clients ne peuvent pas s’attribuer ce rôle. Les contrôles d’abonnement et de changement de mot de passe sont exécutés avant toute opération ERP. `wsgi.py` adapte le même gestionnaire métier à Gunicorn sans recopier les règles, avec validation de l’hôte et de l’origine si `PUBLIC_BASE_URL` est configuré. Les connexions SQLite sont fermées en sortie de contexte ; WAL, délais de verrouillage et quotas transactionnels limitent les conflits sur le serveur unique.

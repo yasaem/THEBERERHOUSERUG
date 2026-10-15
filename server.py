@@ -1,6 +1,7 @@
 import os, json, sqlite3, secrets, hashlib, hmac, time, csv, io, base64, zipfile
 import xml.etree.ElementTree as ET
 import smtplib, ssl
+import saas
 from email.message import EmailMessage
 from documents import pdf as invoice_pdf
 from localization import translate, language as validate_language
@@ -26,10 +27,16 @@ def password(raw, salt=None):
     salt = salt or secrets.token_hex(16)
     return salt + ':' + hashlib.pbkdf2_hmac('sha256', raw.encode(), salt.encode(), 210000).hex()
 
+class ManagedConnection(sqlite3.Connection):
+    def __exit__(self,*args):
+        try:return super().__exit__(*args)
+        finally:self.close()
+
 def connect():
-    c = sqlite3.connect(DB, timeout=20)
+    c = sqlite3.connect(DB, timeout=20, factory=ManagedConnection)
     c.row_factory = sqlite3.Row
     c.execute('PRAGMA foreign_keys=ON')
+    c.execute('PRAGMA busy_timeout=20000')
     return c
 
 def init():
@@ -59,6 +66,9 @@ CREATE INDEX IF NOT EXISTS commissions_company_sale ON commissions(company_id,sa
 CREATE INDEX IF NOT EXISTS products_company_shop ON products(company_id,shop_id);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,company_id INTEGER REFERENCES companies,user_id INTEGER REFERENCES users,event TEXT,date TEXT);
 ''')
+        saas.init(c)
+        c.commit()
+        c.execute('PRAGMA journal_mode=WAL')
 
 def now(): return time.strftime('%Y-%m-%dT%H:%M:%S',time.gmtime())
 def audit(c,u,event): c.execute('INSERT INTO audit(company_id,user_id,event,date) VALUES(?,?,?,?)',(u['company_id'],u['id'],event,now()))
@@ -150,32 +160,45 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self): self.handle_request('POST')
     def handle_request(self,method):
         path=self.path.split('?')[0]
+        if path=='/healthz' and method=='GET':
+            with connect() as c: c.execute('SELECT 1').fetchone()
+            return self.reply({'status':'ok'})
+        if path=='/api/public-config' and method=='GET': return self.reply({'allow_signup':os.environ.get('BAZAR_ALLOW_SIGNUP')=='1'})
         if not path.startswith('/api/'):
             if method!='GET': return self.reply({'error':'Introuvable'},404)
-            file=ROOT/'static'/({'/':'index.html','/app.js':'app.js','/style.css':'style.css','/i18n.js':'i18n.js','/translations.json':'translations.json'}.get(path,'missing'))
+            file=ROOT/'static'/({'/':'index.html','/app.js':'app.js','/style.css':'style.css','/i18n.js':'i18n.js','/translations.json':'translations.json','/platform.js':'platform.js'}.get(path,'missing'))
             if not file.is_file(): return self.reply({'error':'Introuvable'},404)
             self.send_response(200); self.send_header('Content-Type',{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8','json':'application/json; charset=utf-8'}[file.suffix[1:]])
             self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'")
             self.end_headers(); self.wfile.write(file.read_bytes()); return
         try:
             length=int(self.headers.get('Content-Length',0))
-            if length>2000000: return self.reply({'error':'Requête trop volumineuse'},413)
+            if length<0 or length>2000000: return self.reply({'error':'Requête trop volumineuse'},413)
             d=json.loads(self.rfile.read(length)) if method=='POST' else {}
             with connect() as c:
-                if method=='POST': c.execute('BEGIN IMMEDIATE')
+                if method=='POST' and path not in ['/api/invoice','/api/invoice-pdf','/api/invoice-email']: c.execute('BEGIN IMMEDIATE')
                 if path=='/api/register' and method=='POST':
+                    if os.environ.get('BAZAR_ALLOW_SIGNUP')!='1': return self.reply({'error':'Inscription sur invitation uniquement'},403)
                     if len(d['password'])<10: raise ValueError('Mot de passe : 10 caractères minimum')
                     if not d['email'].strip() or not d['company'].strip() or not d['name'].strip(): raise ValueError('Tous les champs sont obligatoires')
                     tid=c.execute('INSERT INTO companies(name) VALUES(?)',(d['company'],)).lastrowid
                     uid=c.execute('INSERT INTO users(company_id,name,email,password,role) VALUES(?,?,?,?,?)',(tid,d['name'],d['email'].strip().lower(),password(d['password']),'owner')).lastrowid
                     c.execute('INSERT INTO shops(company_id,name,address) VALUES(?,?,?)',(tid,'Boutique principale','Marrakech'))
+                    saas.ensure_tenant(c,tid)
                     return self.login(c,uid)
                 if path=='/api/login' and method=='POST':
+                    email=str(d['email']).strip().lower()
+                    key=hashlib.sha256((email+'|'+str(getattr(self,'client_address',('',))[0])).encode()).hexdigest()
+                    attempt=c.execute('SELECT * FROM auth_attempts WHERE key=?',(key,)).fetchone()
+                    if attempt and attempt['started_at']>time.time()-900 and attempt['failures']>=10: return self.reply({'error':'Trop de tentatives, réessayez dans 15 minutes'},429)
                     u=c.execute('SELECT * FROM users WHERE email=? AND active=1',(d['email'].strip().lower(),)).fetchone()
                     # Always perform the expensive comparison, including unknown accounts.
                     expected=u['password'] if u else password('unavailable')
                     if not hmac.compare_digest(password(d['password'],expected.split(':')[0]),expected) or not u:
-                        return self.reply({'error':'Identifiants incorrects'},401)
+                        if not attempt or attempt['started_at']<=time.time()-900: c.execute('INSERT INTO auth_attempts VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET failures=1,started_at=excluded.started_at',(key,time.time()))
+                        else: c.execute('UPDATE auth_attempts SET failures=failures+1 WHERE key=?',(key,))
+                        c.commit();return self.reply({'error':'Identifiants incorrects'},401)
+                    c.execute('DELETE FROM auth_attempts WHERE key=?',(key,))
                     return self.login(c,u['id'])
                 cookie=SimpleCookie(); cookie.load(self.headers.get('Cookie',''))
                 token=cookie.get('session'); session=c.execute('SELECT * FROM sessions WHERE token=? AND expires>?',(token.value if token else '',time.time())).fetchone()
@@ -185,8 +208,33 @@ class Handler(BaseHTTPRequestHandler):
                 if method=='POST' and self.headers.get('X-CSRF-Token')!=session['csrf']: return self.reply({'error':'Session invalide'},403)
                 if path=='/api/logout':
                     c.execute('DELETE FROM sessions WHERE token=?',(session['token'],)); c.commit(); return self.reply({'ok':True},cookie='session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict')
+                if path=='/api/account/password' and method=='POST':
+                    if not hmac.compare_digest(password(d['current_password'],u['password'].split(':')[0]),u['password']): raise ValueError('Mot de passe actuel incorrect')
+                    if len(d['new_password'])<12 or d['new_password']==d['current_password']:raise ValueError('Choisissez un nouveau mot de passe de 12 caractères minimum')
+                    c.execute('UPDATE users SET password=?,must_change_password=0 WHERE id=?',(password(d['new_password']),u['id']))
+                    c.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(u['id'],session['token']));c.commit();return self.reply({'ok':True})
+                identity={'user':{k:u[k] for k in ['id','name','email','role','must_change_password']},'csrf':session['csrf']}
+                if u['must_change_password']:
+                    if path=='/api/state': return self.reply({**identity,'password_required':True})
+                    return self.reply({'error':'Vous devez changer votre mot de passe provisoire'},403)
+                if u['role']=='platform_admin':
+                    if path=='/api/state': return self.reply({**identity,**saas.platform_state(c,u)})
+                    if path.startswith('/api/platform/') and method=='POST':
+                        result=saas.routes(c,u,path,d,password,money);c.commit();return self.reply(result)
+                    return self.reply({'error':'Accès réservé à l’espace éditeur'},403)
+                if path.startswith('/api/platform/'):return self.reply({'error':'Accès réservé à l’éditeur SaaS'},403)
+                subscription=saas.account(c,u['company_id'])
+                if not subscription['accessible']:
+                    if path=='/api/state':
+                        company=c.execute('SELECT name FROM companies WHERE id=?',(u['company_id'],)).fetchone()['name']
+                        public={key:subscription[key] for key in ['effective_status','period_end']}
+                        return self.reply({**identity,'company':company,'blocked':True,'subscription':subscription if u['role']=='owner' else public})
+                    return self.reply({'error':'Abonnement inactif : contactez votre fournisseur'},403)
                 if path=='/api/state':
-                    data={'user':{k:u[k] for k in ['id','name','email','role']},'csrf':session['csrf'],'company':c.execute('SELECT name FROM companies WHERE id=?',(u['company_id'],)).fetchone()['name']}
+                    data={'user':{k:u[k] for k in ['id','name','email','role','must_change_password']},'csrf':session['csrf'],'company':c.execute('SELECT name FROM companies WHERE id=?',(u['company_id'],)).fetchone()['name']}
+                    if u['role']=='owner':
+                        data['subscription']=subscription
+                        data['subscription_payments']=[dict(r) for r in c.execute('SELECT id,amount,currency,months,reference,method,paid_at,period_start,period_end FROM subscription_payments WHERE company_id=? ORDER BY id DESC',(u['company_id'],))]
                     allowed=TABLES if u['role']=='owner' else [t for t in TABLES if t!='users'] if u['role']=='manager' else ['shops','products','sales','commissions'] if u['role']=='seller' else ['shops','products']
                     for t in allowed:
                         cols='id,name,email,role,active' if t=='users' else '*'
@@ -268,11 +316,12 @@ class Handler(BaseHTTPRequestHandler):
                         if f in values: values[f]=money(values[f])
                     if 'active' in values and values['active'] not in [0,1]: raise ValueError('Statut invalide')
                     if t=='users':
+                        if values.get('active')==1 and not r['active']: saas.quota(c,u['company_id'],'users')
                         if r['id']==u['id'] and (values.get('active',1)==0 or values.get('role',u['role'])!='owner'): raise ValueError('Vous ne pouvez pas retirer votre propre accès administrateur')
                         if 'role' in values and values['role'] not in ['owner','manager','seller','operator']: raise ValueError('Rôle invalide')
                         if values.get('password'):
                             if len(values['password'])<10: raise ValueError('Mot de passe : 10 caractères minimum')
-                            values['password']=password(values['password'])
+                            values['password']=password(values['password']); values['must_change_password']=1
                         else: values.pop('password',None)
                         if 'assigned_shop' in v:
                             owned(c,'shops',v['assigned_shop'],u);c.execute('DELETE FROM user_shops WHERE user_id=?',(r['id'],));c.execute('INSERT INTO user_shops VALUES(?,?)',(r['id'],v['assigned_shop']))
@@ -338,6 +387,7 @@ class Handler(BaseHTTPRequestHandler):
                         'expenses':['shop_id','date','name','category','amount'],'employees':['shop_id','name','position','salary'],
                         'salaries':['shop_id','employee_id','name','date','amount'],'users':['name','email','password','role']}
                     if t not in fields: raise ValueError('Type invalide')
+                    if t in ['shops','users']: saas.quota(c,u['company_id'],t)
                     if t in ['users','shops'] and u['role']!='owner': return self.reply({'error':'Administration réservée au propriétaire'},403)
                     if t=='users' and v.get('role')!='owner': owned(c,'shops',v['assigned_shop'],u)
                     if not str(v.get('name','')).strip(): raise ValueError('Nom obligatoire')
@@ -362,6 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                     if t=='products': c.execute('INSERT INTO movements(company_id,product_id,quantity,reason,date,user_id) VALUES(?,?,?,?,?,?)',(u['company_id'],ident,v['quantity'],'Stock initial',now(),u['id']))
                     audit(c,u,f'Création {t} #{ident}'); c.commit(); return self.reply({'id':ident})
                 return self.reply({'error':'Introuvable'},404)
+        except PermissionError as e: self.reply({'error':str(e)},403)
         except sqlite3.IntegrityError: self.reply({'error':'Donnée déjà existante ou référence invalide'},400)
         except (ValueError,KeyError,TypeError,ArithmeticError) as e: self.reply({'error':str(e) or 'Données invalides'},400)
         except Exception:
