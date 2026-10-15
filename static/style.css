@@ -1063,3 +1063,24 @@ aside nav button {
     font-size: 24px;
   }
 }
+.demo-notice {
+  margin: 0 0 22px;
+  padding: 12px 15px;
+  border: 1px solid #e9d5a6;
+  border-radius: 8px;
+  background: #fff8e9;
+  color: #8c6127;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.auth-form {
+  min-width: 0;
+}
+.auth-form > div {
+  max-width: 100%;
+}
+@media (max-width: 800px) {
+  .auth {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

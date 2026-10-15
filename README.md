@@ -4,6 +4,14 @@
 
 Application web bilingue français / anglais pour les commerces marocains. Interface responsive, API Python, SQLite, PDF ReportLab. Cette version ajoute l’espace éditeur SaaS, la création des entreprises clientes, les formules et les règlements manuels. Le déploiement public et le paiement automatique nécessitent encore vos accès externes et une recette de production.
 
+## Ouvrir une version web sans domaine ni VPS
+
+[**Déployer l’aperçu gratuit sur Render**](https://render.com/deploy?repo=https://github.com/yasaem/THEBERERHOUSERUG)
+
+Render fournit une adresse HTTPS automatiquement. Connectez votre compte GitHub à Render si nécessaire et renseignez votre e-mail et votre mot de passe éditeur dans les champs sécurisés. Aucun mot de passe n’est à transmettre dans le chat. Vérifiez le plan Free avant de lancer. [Instructions de l’aperçu](docs/RENDER_PREVIEW.md).
+
+**Données temporaires : cet aperçu gratuit n’est pas destiné aux données réelles ou à une exploitation commerciale.** Il peut être mis en veille et perdre son disque SQLite. Le déploiement et son URL ne sont pas encore créés ; le lien ci-dessus ouvre le formulaire de déploiement.
+
 ## Récupérer le code
 
 ```bash
@@ -127,6 +135,6 @@ Ne versionnez jamais `.data/`, `.venv/`, `.env`, sauvegardes ou identifiants SMT
 
 ## Validation de cette évolution
 
-37 tests ont été exécutés avec succès, y compris dans le conteneur. Le parcours éditeur/client, les quotas, les paiements, la suspension et le changement obligatoire du mot de passe ont aussi été vérifiés dans Chromium. Le redémarrage d’un conteneur avec volume, une sauvegarde et sa restauration dans une base séparée ont été contrôlés. Le connecteur Cloudflare officiel a été téléchargé avec vérification de digest et exécuté (`--version`), mais aucun tunnel de production n’a été connecté.
+40 tests ont été exécutés avec succès, y compris dans le conteneur. Le parcours éditeur/client, les quotas, les paiements, la suspension et le changement obligatoire du mot de passe ont aussi été vérifiés dans Chromium. Le redémarrage d’un conteneur avec volume, une sauvegarde et sa restauration dans une base séparée ont été contrôlés. Le connecteur Cloudflare officiel a été téléchargé avec vérification de digest et exécuté (`--version`), mais aucun tunnel de production n’a été connecté.
 
 Le workflow GitHub Actions vérifie les tests et la syntaxe JavaScript sur chaque push/PR ; sa présence ne signifie pas qu’une exécution distante a déjà été observée.

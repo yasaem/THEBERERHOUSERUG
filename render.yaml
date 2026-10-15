@@ -1,0 +1,27 @@
+# Free, disposable preview. SQLite data is NOT persistent on this service.
+services:
+  - type: web
+    name: bazarpilot-preview
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    dockerCommand: python scripts/start_web.py
+    envVars:
+      - key: BAZAR_DB
+        value: /data/bazar.sqlite3
+      - key: BAZAR_ALLOW_SIGNUP
+        value: "0"
+      - key: BAZAR_DEMO_MODE
+        value: "1"
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: WEB_WORKERS
+        value: "1"
+      - key: WEB_THREADS
+        value: "4"
+      - key: BAZAR_PUBLISHER_NAME
+        value: Administrateur
+      - key: BAZAR_PUBLISHER_EMAIL
+        sync: false
+      - key: BAZAR_PUBLISHER_PASSWORD
+        sync: false

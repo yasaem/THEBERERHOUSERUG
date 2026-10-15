@@ -468,5 +468,6 @@
   "Entreprise créée, essai de 14 jours": "Company created, 14-day trial",
   "Accès réactivé": "Access restored",
   "Accès suspendu": "Access suspended",
-  "Compte éditeur initialisé depuis le terminal": "Publisher account initialised from terminal"
+  "Compte éditeur initialisé depuis le terminal": "Publisher account initialised from terminal",
+  "Version de démonstration — données temporaires. Ne saisissez pas de données réelles.": "Demo version — temporary data. Do not enter real business data."
 }

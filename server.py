@@ -163,7 +163,10 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/healthz' and method=='GET':
             with connect() as c: c.execute('SELECT 1').fetchone()
             return self.reply({'status':'ok'})
-        if path=='/api/public-config' and method=='GET': return self.reply({'allow_signup':os.environ.get('BAZAR_ALLOW_SIGNUP')=='1'})
+        if path=='/api/public-config' and method=='GET':
+            config={'allow_signup':os.environ.get('BAZAR_ALLOW_SIGNUP')=='1'}
+            if os.environ.get('BAZAR_DEMO_MODE')=='1': config['demo_mode']=True
+            return self.reply(config)
         if not path.startswith('/api/'):
             if method!='GET': return self.reply({'error':'Introuvable'},404)
             file=ROOT/'static'/({'/':'index.html','/app.js':'app.js','/style.css':'style.css','/i18n.js':'i18n.js','/translations.json':'translations.json','/platform.js':'platform.js'}.get(path,'missing'))

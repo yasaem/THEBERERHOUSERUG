@@ -4,6 +4,14 @@
 
 A French/English responsive web application for Moroccan retailers. Python JSON API, SQLite relational database and ReportLab A4 invoices. This version includes publisher administration, customer provisioning, subscription plans and manual payments. Public deployment and automatic billing still require your external accounts, credentials and production acceptance.
 
+## Web preview without your own domain or VPS
+
+[**Deploy the free Render preview**](https://render.com/deploy?repo=https://github.com/yasaem/THEBERERHOUSERUG)
+
+Render provides an HTTPS subdomain after deployment. Sign in, grant repository access if private, verify the Free plan, and enter your publisher email/password in the private deployment fields (never in chat or Git). Full steps: `docs/RENDER_PREVIEW.md`.
+
+**Temporary data only:** free SQLite storage is ephemeral and may be lost on restart/redeployment. A visible banner marks demo mode. Do not use real customer data or sell this preview as a production service. The link opens the deployment form; no live Render URL or resource has been created from this session yet.
+
 ## Get the source and start
 
 Python 3.12+ is required. Node.js is only needed for the optional JavaScript syntax check.
@@ -128,4 +136,4 @@ docker build --build-arg DEPENDENCY_STAGE=offline -t bazar-erp:local .
 
 Use wheels matching Python 3.12 and the target platform. Full deployment details and restore procedures are in `docs/CLOUDFLARE.md`.
 
-37 tests passed, also inside Docker. The publisher-to-customer browser workflow, quota enforcement, payment, suspension, restart persistence and backup restoration into a separate database were verified. The official Cloudflare connector image was verified by digest and its binary executed, but no authenticated production tunnel was connected. A GitHub Actions workflow is included; a remote CI run is not claimed without observing it.
+40 tests passed, also inside Docker. The publisher-to-customer browser workflow, quota enforcement, payment, suspension, restart persistence and backup restoration into a separate database were verified. The official Cloudflare connector image was verified by digest and its binary executed, but no authenticated production tunnel was connected. A GitHub Actions workflow is included; a remote CI run is not claimed without observing it.

@@ -1248,6 +1248,7 @@ function editRecord(spec) {
 }
 
 function mountLanguageSwitch() {
+  mountDemoNotice();
   const wrapper = document.createElement("div");
   wrapper.className = "language-control";
   wrapper.innerHTML = `<label for="language-switch">${language === "en" ? "Language" : "Langue"}</label><select id="language-switch" aria-label="${language === "en" ? "Application language" : "Langue de l’application"}"><option value="fr" ${language === "fr" ? "selected" : ""}>Français</option><option value="en" ${language === "en" ? "selected" : ""}>English</option></select>`;
@@ -1265,4 +1266,18 @@ function mountLanguageSwitch() {
           $("#auth-form").elements[key].value = value;
     }
   };
+}
+
+function mountDemoNotice() {
+  if (!publicConfig.demo_mode || document.querySelector(".demo-notice")) return;
+  const notice = document.createElement("p");
+  notice.className = "demo-notice";
+  notice.setAttribute("role", "status");
+  notice.textContent = tr(
+    "Version de démonstration — données temporaires. Ne saisissez pas de données réelles.",
+  );
+  const target =
+    document.querySelector("main") ||
+    document.querySelector(".auth-form > div");
+  if (target) target.prepend(notice);
 }

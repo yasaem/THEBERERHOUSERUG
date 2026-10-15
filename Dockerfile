@@ -23,5 +23,5 @@ COPY --chown=bazar:bazar docs/ ./docs/
 COPY --chown=bazar:bazar README.md README_EN.md ./
 USER 10001:10001
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/healthz',timeout=3)"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','3000')+'/healthz',timeout=3)"
 CMD ["gunicorn", "--config", "gunicorn.conf.py", "wsgi:application"]
